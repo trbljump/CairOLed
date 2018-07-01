@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <math.h>
 
@@ -56,7 +57,8 @@ static cairo_t* createCairo() {
 
 static bool drawQRCode(cairo_t* cr,
 		       const char* message,
-		       bool whiteFill=true) {
+		       bool whiteFill=true,
+		       int margin=4) {
   QRcode* code ;
   double x1, y1, x2, y2 ;
   int qrWidth ;
@@ -73,7 +75,12 @@ static bool drawQRCode(cairo_t* cr,
 
   if ((code = QRcode_encodeString(message, 0, QR_ECLEVEL_L, QR_MODE_8, 1))) {
     qrWidth = code->width ;
-    qrEffectiveWidth = qrWidth + 8 ;
+    qrEffectiveWidth = qrWidth + 2*margin ;
+
+    std::cerr << "len=" << strlen(message)
+	      << " version=" << code->version
+	      << " size=" << qrWidth
+	      << std::endl ;
   
     cairo_clip_extents(cr, &x1, &y1, &x2, &y2) ;
 
@@ -95,7 +102,8 @@ static bool drawQRCode(cairo_t* cr,
 
       if (whiteFill) {
 	cairo_set_source_rgba(cr, 1, 1, 1, 1) ;
-	cairo_rectangle(cr, -4, -4, qrWidth+8, qrWidth+8) ;
+	cairo_rectangle(cr, -margin, -margin,
+			qrWidth+2*margin, qrWidth+2*margin) ;
 	cairo_fill(cr) ;
       }
 
@@ -137,15 +145,61 @@ static bool drawQRCode(cairo_t* cr,
   return result ;
 }
 
+static void backDrop(cairo_t* cr, const char* filename) {
+  cairo_surface_t* wifi ;
+  cairo_pattern_t* wifiPattern ;
+  int w, h ;
+  double x1, y1, x2, y2 ;
+  double xScale, yScale ;
+  double ox, oy ;
+  cairo_matrix_t transform ;
+  
+  wifi = cairo_image_surface_create_from_png(filename) ;
+  w = cairo_image_surface_get_width(wifi) ;
+  h = cairo_image_surface_get_height(wifi) ;
+
+  cairo_clip_extents(cr, &x1, &y1, &x2, &y2) ;
+  xScale = (x2-x1) / w ;
+  yScale = (y2-y1) / h ;
+  if (yScale < xScale) {
+    xScale = yScale ;
+  } else {
+    yScale = xScale ;
+  }
+  
+  cairo_save(cr) ;
+
+  ox = x1 + ((x2-x1) - xScale*w)/2.0 ;
+  oy = y1 + ((y2-y1) - yScale*h)/2.0 ;
+
+  cairo_matrix_init_translate(&transform, ox, oy) ;  
+  cairo_matrix_scale(&transform, xScale, yScale) ;
+  cairo_set_matrix(cr, &transform) ;
+  
+  wifiPattern = cairo_pattern_create_for_surface(wifi) ;
+  cairo_set_source(cr, wifiPattern) ;
+  cairo_paint(cr) ;
+
+  cairo_restore(cr) ;  
+}
+
 int main(int argc, char **argv) {
   cairo_t* cr ;
 
   cr = createCairo() ;
 
-  cairo_set_source_rgb (cr, 0, 0, 0) ;
+  cairo_set_source_rgb (cr, 1,1,1) ;
   cairo_paint(cr);
 
-  drawQRCode(cr, "Hello QR Code World, ceci est un (relativement) long QR Code pour voir les limites. D'ailleurs on va en rajouter un peu àéà", true) ;
+  backDrop(cr, "wifi.png") ;
+
+  drawQRCode(cr,
+	     // Cette chaîne de 32 bytes (SSID de 5 bytes
+	     // et PSK de 10 bytes) donne un QR code de version 2
+	     // (25x25 modules) qui "tient" sur un OLED 96x64.
+	     //             01234   0123456789
+	     "WIFI:T:WPA2;S:Xy2FA;P:U!(a)W*HG/",
+	     false, 3) ;
   
   cairo_surface_flush(cairo_get_target(cr)) ;
 #ifdef USE_X11
